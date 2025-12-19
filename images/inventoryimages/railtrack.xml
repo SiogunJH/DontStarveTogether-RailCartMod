@@ -1,0 +1,10 @@
+<Atlas>
+<Texture filename="railtrack.tex" />
+<Elements>
+<Element name="default.tex" u1="0" u2="0.2" v1="0" v2="1" />
+<Element name="ocean.tex" u1="0.2" u2="0.4" v1="0" v2="1" />
+<Element name="boost.tex" u1="0.4" u2="0.6" v1="0" v2="1" />
+<Element name="damp.tex" u1="0.6" u2="0.8" v1="0" v2="1" />
+<Element name="reverse.tex" u1="0.8" u2="1" v1="0" v2="1" />
+</Elements>
+</Atlas>
