@@ -1,17 +1,12 @@
 local TRACK_LENGTH = 2
 
-local assets =
-{
+local assets = {
     Asset("ANIM", "anim/railtrack_tool.zip"),
     Asset("ATLAS", "images/inventoryimages/railtrack_tool.xml"),
-    Asset("IMAGE", "images/inventoryimages/railtrack_tool.tex"),
-
+    Asset("IMAGE", "images/inventoryimages/railtrack_tool.tex")
 }
 
-
-local prefabs =
-{
-}
+local prefabs = {}
 
 local function IsValid(inst)
     return inst ~= nil and inst:IsValid() and not inst:HasTag("burnt")
@@ -22,13 +17,17 @@ local function IsOverWater(pos)
     --and inst:GetCurrentPlatform() == nil
 end
 
+local function IsOverCaveVoid(pos)
+    return TheWorld.Map:IsImpassableTileAtPoint(pos.x, pos.y, pos.z)
+end
+
 local function IsValidTile(pos)
     return TheWorld.Map:GetTileAtPoint(pos.x, pos.y, pos.z) > 1
 end
 
 local function CreateRail(inst, target, pos)
     local tpos = pos
-    local var = TheSim:FindEntities(pos.x, pos.y, pos.z, 5, { "railtrack" }, { "burnt" })
+    local var = TheSim:FindEntities(pos.x, pos.y, pos.z, 5, {"railtrack"}, {"burnt"})
 
     if var ~= nil and #var > 0 then
         tpos = var[1]:GetPosition()
@@ -49,17 +48,28 @@ local function CreateRail(inst, target, pos)
         return
     end
 
-    if IsOverWater(tpos) then
+    -- Handle special rail types
+    local is_over_water = IsOverWater(tpos)
+    local is_over_cavevoid = IsOverCaveVoid(tpos)
+
+    if is_over_cavevoid then
+        -- Over cave void - only cavevoid rails allowed
+        if item_stack.prefab ~= "railtrack_cavevoid_item" then
+            return
+        end
+    elseif is_over_water then
+        -- Over water - only ocean rails allowed
         if item_stack.prefab ~= "railtrack_ocean_item" then
             return
         end
     else
-        if item_stack.prefab == "railtrack_ocean_item" then
+        -- On normal ground - ocean and cavevoid rails not allowed
+        if item_stack.prefab == "railtrack_ocean_item" or item_stack.prefab == "railtrack_cavevoid_item" then
             return
         end
     end
 
-    var = TheSim:FindEntities(tpos.x, 0, tpos.z, 0.9 * TRACK_LENGTH, { "railtrack" })
+    var = TheSim:FindEntities(tpos.x, 0, tpos.z, 0.9 * TRACK_LENGTH, {"railtrack"})
     if #var > 0 then
         return
     end
@@ -82,7 +92,7 @@ local function CreateRail(inst, target, pos)
     track.components.railtrack:SetNeighborhood()
     track.SoundEmitter:PlaySound("dontstarve_DLC001/common/firesupressor_craft")
 
-    var = TheSim:FindEntities(pos.x, pos.y, pos.z, 15, { "railtrack" }, { "burnt" })
+    var = TheSim:FindEntities(pos.x, pos.y, pos.z, 15, {"railtrack"}, {"burnt"})
     for k, v in ipairs(var) do
         v.components.railtrack:SetNeighborhood()
     end
@@ -96,7 +106,6 @@ local function can_cast_fn(doer, target, pos)
     return false
 end
 
-
 local function onequip(inst, owner)
     owner.AnimState:OverrideSymbol("swap_object", "railtrack_tool", "swap_tool")
     owner.AnimState:Show("ARM_carry")
@@ -107,21 +116,33 @@ local function onequip(inst, owner)
             owner.player_classified.railtrack_tool:set(false)
             owner.player_classified.railtrack_tool:set(true)
             owner.player_classified.railtrack_tool_isocean:set(
-                inst.components.container:GetItemInSlot(1).prefab == "railtrack_ocean_item")
+                inst.components.container:GetItemInSlot(1).prefab == "railtrack_ocean_item"
+            )
+            owner.player_classified.railtrack_tool_iscavevoid:set(
+                inst.components.container:GetItemInSlot(1).prefab == "railtrack_cavevoid_item"
+            )
         end
         inst.owner = owner
     end
-    inst:DoTaskInTime(1, function() -- If the player spawns with the tool in hands
-        if owner ~= nil and inst.owner ~= nil and owner.player_classified then
-            if inst.components.container:GetItemInSlot(1) ~= nil then
-                owner.player_classified.railtrack_tool:set(false)
-                owner.player_classified.railtrack_tool:set(true)
-                owner.player_classified.railtrack_tool_isocean:set(
-                    inst.components.container:GetItemInSlot(1).prefab == "railtrack_ocean_item")
+    inst:DoTaskInTime(
+        1,
+        function()
+            -- If the player spawns with the tool in hands
+            if owner ~= nil and inst.owner ~= nil and owner.player_classified then
+                if inst.components.container:GetItemInSlot(1) ~= nil then
+                    owner.player_classified.railtrack_tool:set(false)
+                    owner.player_classified.railtrack_tool:set(true)
+                    owner.player_classified.railtrack_tool_isocean:set(
+                        inst.components.container:GetItemInSlot(1).prefab == "railtrack_ocean_item"
+                    )
+                    owner.player_classified.railtrack_tool_iscavevoid:set(
+                        inst.components.container:GetItemInSlot(1).prefab == "railtrack_cavevoid_item"
+                    )
+                end
+                inst.owner = owner
             end
-            inst.owner = owner
         end
-    end)
+    )
 end
 
 local function onunequip(inst, owner)
@@ -140,6 +161,7 @@ local function OnTrackLoaded(inst, data)
         if data ~= nil and data.item ~= nil then
             inst.owner.player_classified.railtrack_tool:set(true)
             inst.owner.player_classified.railtrack_tool_isocean:set(data.item.prefab == "railtrack_ocean_item")
+            inst.owner.player_classified.railtrack_tool_iscavevoid:set(data.item.prefab == "railtrack_cavevoid_item")
         else
             inst.owner.player_classified.railtrack_tool:set(false)
         end
@@ -177,7 +199,6 @@ local function tool_fn()
 
     inst.entity:SetPristine()
 
-
     if not TheWorld.ismastersim then
         return inst
     end
@@ -214,14 +235,11 @@ local function tool_fn()
     inst:AddComponent("weapon")
     inst.components.weapon:SetDamage(TUNING.CANE_DAMAGE)
 
-
     MakeSmallBurnable(inst, TUNING.SMALL_BURNTIME)
     MakeSmallPropagator(inst)
     MakeHauntableLaunchAndIgnite(inst)
 
-
     return inst
 end
-
 
 return Prefab("railtrack_tool", tool_fn, assets, prefabs)
